@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mitochondrial Protein Comparison</title>
+    <script src="https://3dmol.csb.pitt.edu/build/3Dmol-min.js"></script>
+  
+    <link href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;700&display=swap" rel="stylesheet">
+
+    <style>
+        body {
+            background-color: #fafafa;
+            font-family: 'Figtree', sans-serif;
+        }
+        .viewer {
+            height: 500px;
+            width: 100%;
+            border-radius: 20px;
+            background-color: #fff;
+        }
+        .btn-custom {
+            margin-top: 10px;
+            width: 100%;
+        }
+        h3 {
+            color: #424242;
+            font-size: 1.5em;
+        }
+        .big-blue-text {
+            font-size: 1.2em;
+            color: #1e88e5;
+        }
+        select {
+            display: block;
+            margin-top: 10px;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h3 class="center-align"><b>Compare mitochondrial protein structures</b></h3>
+    <p class="center-align big-blue-text">Select a patient to see how their protein differs from the wildtype structure.</p>
+
+    <div class="row">
+        <!-- Original (Wildtype) Protein -->
+        <div class="col s12 m6">
+            <div class="card">
+                <div class="card-content">
+                    <div id="viewerOriginal" class="viewer"></div>
+                    <h3>Wildtype (Normal) Mitochondrial Protein</h3>
+                </div>
+                <div class="card-action">
+                    <button class="btn waves-effect waves-light btn-custom blue darken-2" onclick="toggleViewerStyle('original')">Toggle structure/spacefill</button>
+                    <button class="btn waves-effect waves-light btn-custom blue" onclick="reloadOriginalViewer()">Reset View</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Patient (Mutant) Protein -->
+        <div class="col s12 m6">
+            <div class="card">
+                <div class="card-content">
+                    <div id="viewerPatient" class="viewer"></div>
+                    <h3>Patient Protein</h3>
+                    <div class="input-field">
+                        <select id="patientSelect" onchange="loadPatientProtein()">
+                            <option value="" disabled selected>Select a patient</option>
+                            <option value="priya">Patient 1: Priya</option>
+                            <option value="tom">Patient 2: Tom</option>
+                            <option value="phil">Patient 3: Phil</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="card-action">
+                    <button class="btn waves-effect waves-light btn-custom blue darken-2" onclick="toggleViewerStyle('patient')">Toggle structure/spacefill</button>
+                    <button class="btn waves-effect waves-light btn-custom blue" onclick="reloadPatientViewer()">Reset View</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <p class="center-align big-blue-text">How might these structural differences affect protein function and mitochondrial performance?</p>
+</div>
+
+<script>
+    let originalViewer, patientViewer;
+    let rotateOriginalInterval, rotatePatientInterval;
+    let currentStyle = 'spectrum';
+
+    const pdbUrls = {
+        original: "https://files.rcsb.org/download/1P32.pdb",
+        priya: "https://files.rcsb.org/download/8P8X.pdb",
+        tom: "https://files.rcsb.org/download/6RUP.pdb",
+        phil: "https://files.rcsb.org/download/7TE3.pdb"
+    };
+
+    const spectrumStyle = { cartoon: { color: 'spectrum' } };
+    const spacefillStyle = { sphere: { color: 'spectrum' } };
+
+    // Create viewer
+    function createViewer(elementId, pdbUrl, style) {
+        const viewer = $3Dmol.createViewer(elementId, { backgroundColor: 'white' });
+        fetch(pdbUrl)
+            .then(response => response.text())
+            .then(data => {
+                viewer.addModel(data, 'pdb');
+                viewer.setStyle({}, style);
+                viewer.zoomTo();
+                viewer.render();
+            })
+            .catch(error => console.error(`Error loading PDB for ${elementId}:`, error));
+        return viewer;
+    }
+
+    // Initialize wildtype viewer
+    function initializeViewers() {
+        originalViewer = createViewer("viewerOriginal", pdbUrls.original, spectrumStyle);
+        startRotation();
+    }
+
+    // Load selected patient
+    function loadPatientProtein() {
+        const patientSelect = document.getElementById('patientSelect');
+        const selectedValue = patientSelect.value;
+
+        if (!selectedValue) return;
+
+        const pdbUrl = pdbUrls[selectedValue];
+        patientViewer = $3Dmol.createViewer("viewerPatient", { backgroundColor: 'white' });
+        fetch(pdbUrl)
+            .then(response => response.text())
+            .then(data => {
+                patientViewer.addModel(data, 'pdb');
+                patientViewer.setStyle({}, spectrumStyle);
+                patientViewer.zoomTo();
+                patientViewer.render();
+                startRotation(); // restart rotation for new model
+            })
+            .catch(error => console.error('Error loading patient PDB:', error));
+    }
+
+    // Rotation animation
+    function autoRotate(viewer, speedX = 0.2, speedY = 0.1) {
+        return setInterval(() => {
+            viewer.rotate(speedX, 'y');
+            viewer.rotate(speedY, 'x');
+            viewer.render();
+        }, 100);
+    }
+
+    function startRotation() {
+        if (originalViewer) {
+            clearInterval(rotateOriginalInterval);
+            rotateOriginalInterval = autoRotate(originalViewer);
+        }
+        if (patientViewer) {
+            clearInterval(rotatePatientInterval);
+            rotatePatientInterval = autoRotate(patientViewer);
+        }
+    }
+
+    // Viewer controls
+    function reloadOriginalViewer() {
+        if (originalViewer) {
+            originalViewer.zoomTo();
+            originalViewer.render();
+        }
+    }
+
+    function reloadPatientViewer() {
+        if (patientViewer) {
+            patientViewer.zoomTo();
+            patientViewer.render();
+        }
+    }
+
+    function toggleViewerStyle(viewerType) {
+        currentStyle = currentStyle === 'spectrum' ? 'spacefill' : 'spectrum';
+        const style = currentStyle === 'spectrum' ? spectrumStyle : spacefillStyle;
+
+        if (viewerType === 'original' && originalViewer) {
+            originalViewer.setStyle({}, style);
+            originalViewer.render();
+        } else if (viewerType === 'patient' && patientViewer) {
+            patientViewer.setStyle({}, style);
+            patientViewer.render();
+        }
+    }
+
+    window.addEventListener('load', () => {
+        initializeViewers();
+        const elems = document.querySelectorAll('select');
+        M.FormSelect.init(elems);
+    });
+</script>
+
+
+</body>
+</html>
