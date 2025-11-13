@@ -1,13 +1,12 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Mitochondrial Protein Comparison</title>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <title> Genetic Testing: 3D protein Viewer</title>
     <script src="https://3dmol.csb.pitt.edu/build/3Dmol-min.js"></script>
-  
-    <link href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;700&display=swap" rel="stylesheet">
-
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/materialize/1.0.0/css/materialize.min.css"/>
+    <link href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;700&display=swap" rel="stylesheet"/>
     <style>
         body {
             background-color: #fafafa;
@@ -25,14 +24,12 @@
         }
         h3 {
             color: #424242;
-            font-size: 1.5em;
         }
         .big-blue-text {
             font-size: 1.2em;
             color: #1e88e5;
         }
-        select {
-            display: block;
+        .patient-select {
             margin-top: 10px;
         }
     </style>
@@ -40,162 +37,205 @@
 <body>
 
 <div class="container">
-    <h3 class="center-align"><b>Compare mitochondrial protein structures</b></h3>
-    <p class="center-align big-blue-text">Select a patient to see how their protein differs from the wildtype structure.</p>
+    <h3 class="center-align"><b>Compare mutant <i>BRCA1</i> protein with the original protein</b></h3>
 
     <div class="row">
-        <!-- Original (Wildtype) Protein -->
+        <!-- Left: Patient / Mutant Protein (starts blank until selection) -->
         <div class="col s12 m6">
             <div class="card">
                 <div class="card-content">
-                    <div id="viewerOriginal" class="viewer"></div>
-                    <h3>Wildtype (Normal) Mitochondrial Protein</h3>
-                </div>
-                <div class="card-action">
-                    <button class="btn waves-effect waves-light btn-custom blue darken-2" onclick="toggleViewerStyle('original')">Toggle structure/spacefill</button>
-                    <button class="btn waves-effect waves-light btn-custom blue" onclick="reloadOriginalViewer()">Reset View</button>
-                </div>
-            </div>
-        </div>
+                    <div id="viewerMutant" class="viewer"></div>
+                    <h3>Patient Protein (select below)</h3>
 
-        <!-- Patient (Mutant) Protein -->
-        <div class="col s12 m6">
-            <div class="card">
-                <div class="card-content">
-                    <div id="viewerPatient" class="viewer"></div>
-                    <h3>Patient Protein</h3>
-                    <div class="input-field">
-                        <select id="patientSelect" onchange="loadPatientProtein()">
-                            <option value="" disabled selected>Select a patient</option>
+                    <!-- Dropdown added here so it stays within the original layout -->
+                    <div class="input-field patient-select">
+                        <select id="patientSelect">
+                            <option value="" selected>-- Select a patient (load PDB) --</option>
                             <option value="priya">Patient 1: Priya</option>
                             <option value="tom">Patient 2: Tom</option>
                             <option value="phil">Patient 3: Phil</option>
                         </select>
+                        <label>Load patient structure</label>
                     </div>
+
                 </div>
                 <div class="card-action">
-                    <button class="btn waves-effect waves-light btn-custom blue darken-2" onclick="toggleViewerStyle('patient')">Toggle structure/spacefill</button>
-                    <button class="btn waves-effect waves-light btn-custom blue" onclick="reloadPatientViewer()">Reset View</button>
+                    <button class="btn waves-effect waves-light btn-custom blue" id="resetMutantBtn">Reset patient view</button>
+                    <button class="btn waves-effect waves-light btn-custom blue darken-2" id="toggleMutantStyleBtn">Toggle structure/spacefill</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Right: Original / Wildtype Protein (loads 1P32.pdb) -->
+        <div class="col s12 m6">
+            <div class="card">
+                <div class="card-content">
+                    <div id="viewerOriginal" class="viewer"></div>
+                    <h3>Original Protein</h3>
+                </div>
+                <div class="card-action">
+                    <button class="btn waves-effect waves-light btn-custom blue" id="resetOriginalBtn">Reset original protein</button>
+                    <button class="btn waves-effect waves-light btn-custom blue darken-2" id="toggleOriginalStyleBtn">Toggle structure/spacefill</button>
                 </div>
             </div>
         </div>
     </div>
 
-    <p class="center-align big-blue-text">How might these structural differences affect protein function and mitochondrial performance?</p>
+    <p class="center-align big-blue-text">How might the mutation impact the ability of this protein to do its job?</p>
 </div>
 
 <script>
-    let originalViewer, patientViewer;
-    let rotateOriginalInterval, rotatePatientInterval;
-    let currentStyle = 'spectrum';
-
+    // PDB mapping
     const pdbUrls = {
-        original: "https://files.rcsb.org/download/1P32.pdb",
+        wildtype: "https://files.rcsb.org/download/1P32.pdb", // right viewer
         priya: "https://files.rcsb.org/download/8P8X.pdb",
-        tom: "https://files.rcsb.org/download/6RUP.pdb",
-        phil: "https://files.rcsb.org/download/7TE3.pdb"
+        tom:   "https://files.rcsb.org/download/6RUP.pdb",
+        phil:  "https://files.rcsb.org/download/7TE3.pdb"
     };
 
-    const spectrumStyle = { cartoon: { color: 'spectrum' } };
-    const spacefillStyle = { sphere: { color: 'spectrum' } };
+    // 3Dmol viewers
+    let mutantViewer = null;   // left viewer (patient)
+    let originalViewer = null; // right viewer (wildtype)
+    let rotateMutantInterval = null;
+    let rotateOriginalInterval = null;
 
-    // Create viewer
-    function createViewer(elementId, pdbUrl, style) {
-        const viewer = $3Dmol.createViewer(elementId, { backgroundColor: 'white' });
-        fetch(pdbUrl)
-            .then(response => response.text())
-            .then(data => {
-                viewer.addModel(data, 'pdb');
+    // styles
+    let currentStyleMutant = 'spectrum';
+    let currentStyleOriginal = 'spectrum';
+    const spectrumStyle = { cartoon: { color: 'spectrum' } };
+    const spacefillStyle = { sphere:  { color: 'spectrum' } };
+
+    // create empty viewers first (no model for mutant initially)
+    function initViewers() {
+        mutantViewer = $3Dmol.createViewer("viewerMutant", { backgroundColor: '0xffffff' });
+        originalViewer = $3Dmol.createViewer("viewerOriginal", { backgroundColor: '0xffffff' });
+
+        // load the wildtype in the originalViewer
+        fetchAndLoadPDB(originalViewer, pdbUrls.wildtype, spectrumStyle)
+            .then(() => {
+                originalViewer.zoomTo();
+                originalViewer.render();
+                startRotation(); // start rotation after original is loaded
+            })
+            .catch(err => console.error("Failed to load wildtype PDB:", err));
+    }
+
+    // fetch PDB text and add model to a viewer (clears previous models first)
+    function fetchAndLoadPDB(viewer, pdbUrl, style) {
+        return fetch(pdbUrl)
+            .then(response => {
+                if (!response.ok) throw new Error('Network response was not ok');
+                return response.text();
+            })
+            .then(pdbText => {
+                viewer.clear(); // remove any existing models
+                viewer.addModel(pdbText, 'pdb');
                 viewer.setStyle({}, style);
                 viewer.zoomTo();
                 viewer.render();
-            })
-            .catch(error => console.error(`Error loading PDB for ${elementId}:`, error));
-        return viewer;
+            });
     }
 
-    // Initialize wildtype viewer
-    function initializeViewers() {
-        originalViewer = createViewer("viewerOriginal", pdbUrls.original, spectrumStyle);
-        startRotation();
-    }
-
-    // Load selected patient
-    function loadPatientProtein() {
-        const patientSelect = document.getElementById('patientSelect');
-        const selectedValue = patientSelect.value;
-
-        if (!selectedValue) return;
-
-        const pdbUrl = pdbUrls[selectedValue];
-        patientViewer = $3Dmol.createViewer("viewerPatient", { backgroundColor: 'white' });
-        fetch(pdbUrl)
-            .then(response => response.text())
-            .then(data => {
-                patientViewer.addModel(data, 'pdb');
-                patientViewer.setStyle({}, spectrumStyle);
-                patientViewer.zoomTo();
-                patientViewer.render();
-                startRotation(); // restart rotation for new model
-            })
-            .catch(error => console.error('Error loading patient PDB:', error));
-    }
-
-    // Rotation animation
+    // rotation utilities
     function autoRotate(viewer, speedX = 0.2, speedY = 0.1) {
+        if (!viewer) return null;
         return setInterval(() => {
-            viewer.rotate(speedX, 'y');
-            viewer.rotate(speedY, 'x');
-            viewer.render();
+            try {
+                viewer.rotate(speedX, 'y');
+                viewer.rotate(speedY, 'x');
+                viewer.render();
+            } catch (e) {
+                // ignore if viewer is mid-update
+            }
         }, 100);
     }
 
     function startRotation() {
         if (originalViewer) {
-            clearInterval(rotateOriginalInterval);
-            rotateOriginalInterval = autoRotate(originalViewer);
+            if (rotateOriginalInterval) clearInterval(rotateOriginalInterval);
+            rotateOriginalInterval = autoRotate(originalViewer, 0.15, 0.08);
         }
-        if (patientViewer) {
-            clearInterval(rotatePatientInterval);
-            rotatePatientInterval = autoRotate(patientViewer);
-        }
-    }
-
-    // Viewer controls
-    function reloadOriginalViewer() {
-        if (originalViewer) {
-            originalViewer.zoomTo();
-            originalViewer.render();
+        if (mutantViewer) {
+            if (rotateMutantInterval) clearInterval(rotateMutantInterval);
+            rotateMutantInterval = autoRotate(mutantViewer, 0.15, 0.08);
         }
     }
 
-    function reloadPatientViewer() {
-        if (patientViewer) {
-            patientViewer.zoomTo();
-            patientViewer.render();
-        }
+    // dropdown handler: load selected patient PDB into left viewer
+    function setupPatientDropdown() {
+        const select = document.getElementById('patientSelect');
+
+        // Materialize select initialization handled on window load below
+        // but attach a plain JS change listener too (more reliable)
+        select.addEventListener('change', async (e) => {
+            const val = e.target.value;
+            if (!val) return;
+
+            const url = pdbUrls[val];
+            if (!url) {
+                console.error("No PDB URL for:", val);
+                return;
+            }
+
+            try {
+                await fetchAndLoadPDB(mutantViewer, url, spectrumStyle);
+                // ensure rotation is running for mutant
+                if (rotateMutantInterval) clearInterval(rotateMutantInterval);
+                rotateMutantInterval = autoRotate(mutantViewer, 0.15, 0.08);
+            } catch (err) {
+                console.error("Error loading patient PDB:", err);
+                M.toast({html: 'Error loading structure — check console.'});
+            }
+        });
     }
 
-    function toggleViewerStyle(viewerType) {
-        currentStyle = currentStyle === 'spectrum' ? 'spacefill' : 'spectrum';
-        const style = currentStyle === 'spectrum' ? spectrumStyle : spacefillStyle;
+    // button bindings
+    function setupButtons() {
+        document.getElementById('resetMutantBtn').addEventListener('click', () => {
+            if (mutantViewer) {
+                mutantViewer.zoomTo();
+                mutantViewer.render();
+            }
+        });
+        document.getElementById('resetOriginalBtn').addEventListener('click', () => {
+            if (originalViewer) {
+                originalViewer.zoomTo();
+                originalViewer.render();
+            }
+        });
 
-        if (viewerType === 'original' && originalViewer) {
-            originalViewer.setStyle({}, style);
-            originalViewer.render();
-        } else if (viewerType === 'patient' && patientViewer) {
-            patientViewer.setStyle({}, style);
-            patientViewer.render();
-        }
+        document.getElementById('toggleMutantStyleBtn').addEventListener('click', () => {
+            currentStyleMutant = currentStyleMutant === 'spectrum' ? 'spacefill' : 'spectrum';
+            const style = currentStyleMutant === 'spectrum' ? spectrumStyle : spacefillStyle;
+            if (mutantViewer) {
+                mutantViewer.setStyle({}, style);
+                mutantViewer.render();
+            }
+        });
+
+        document.getElementById('toggleOriginalStyleBtn').addEventListener('click', () => {
+            currentStyleOriginal = currentStyleOriginal === 'spectrum' ? 'spacefill' : 'spectrum';
+            const style = currentStyleOriginal === 'spectrum' ? spectrumStyle : spacefillStyle;
+            if (originalViewer) {
+                originalViewer.setStyle({}, style);
+                originalViewer.render();
+            }
+        });
     }
 
+    // Initialization on window load
     window.addEventListener('load', () => {
-        initializeViewers();
+        initViewers();
+
+        // Initialize Materialize select and attach handler
         const elems = document.querySelectorAll('select');
         M.FormSelect.init(elems);
+        setupPatientDropdown();
+
+        setupButtons();
     });
 </script>
 
-
+<script src="https://cdnjs.cloudflare.com/ajax/libs/materialize/1.0.0/js/materialize.min.js"></script>
 </body>
 </html>
