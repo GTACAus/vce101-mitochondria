@@ -21,11 +21,13 @@
         .btn-custom {
             margin-top: 10px;
             width: 100%;
+            font-family: inherit;
         }
         h3 {
             color: #424242;
         }
         .big-blue-text {
+            font-family: inherit;
             font-size: 1.2em;
             color: #1e88e5;
         }
@@ -37,16 +39,31 @@
 <body>
 
 <div class="container">
-    <h3 class="center-align"><b>Compare mutant <i>BRCA1</i> protein with the original protein</b></h3>
+    <h3 class="center-align"><b>Genetic testing: </b> Mitochondrial protein</h3>
 
     <div class="row">
-        <!-- Left: Patient / Mutant Protein (starts blank until selection) -->
+        <!-- Left: Original / Wildtype Protein (loads 1P32.pdb) -->
+        <div class="col s12 m6">
+            <div class="card">
+                <div class="card-content">
+                    <div id="viewerOriginal" class="viewer"></div>
+                    <h3>Original Protein</h3>
+                    <p>This is a mitochondrial matrix protein, which is crucial for energy production.</p>
+                </div>
+                <div class="card-action">
+                    <button class="btn waves-effect waves-light btn-custom blue" id="resetOriginalBtn">Reset protein</button>
+                    <button class="btn waves-effect waves-light btn-custom blue darken-2" id="toggleOriginalStyleBtn">Toggle structure/spacefill</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Right: Patient / Mutant Protein (starts blank until selection) -->
         <div class="col s12 m6">
             <div class="card">
                 <div class="card-content">
                     <div id="viewerMutant" class="viewer"></div>
-                    <h3>Patient Protein (select below)</h3>
-
+                    <h3>Patient Protein</h3>
+                    
                     <!-- Dropdown added here so it stays within the original layout -->
                     <div class="input-field patient-select">
                         <select id="patientSelect">
@@ -60,22 +77,9 @@
 
                 </div>
                 <div class="card-action">
-                    <button class="btn waves-effect waves-light btn-custom blue" id="resetMutantBtn">Reset patient view</button>
-                    <button class="btn waves-effect waves-light btn-custom blue darken-2" id="toggleMutantStyleBtn">Toggle structure/spacefill</button>
-                </div>
-            </div>
-        </div>
-
-        <!-- Right: Original / Wildtype Protein (loads 1P32.pdb) -->
-        <div class="col s12 m6">
-            <div class="card">
-                <div class="card-content">
-                    <div id="viewerOriginal" class="viewer"></div>
-                    <h3>Original Protein</h3>
-                </div>
-                <div class="card-action">
-                    <button class="btn waves-effect waves-light btn-custom blue" id="resetOriginalBtn">Reset original protein</button>
-                    <button class="btn waves-effect waves-light btn-custom blue darken-2" id="toggleOriginalStyleBtn">Toggle structure/spacefill</button>
+                    <button class="btn waves-effect waves-light btn-custom blue" id="resetMutantBtn">Reset Protein</button>
+                    <button class="btn waves-effect waves-light btn-custom blue darken-2" id="toggleMutantStyleBtn">Toggle structure</button>
+                    <button class="btn waves-effect waves-light btn-custom red" id="highlightMutationsBtn">Highlight Mutations</button>
                 </div>
             </div>
         </div>
@@ -93,6 +97,18 @@
         phil:  "https://files.rcsb.org/download/7TE3.pdb"
     };
 
+    // Mutation data: specify which residues are mutated for each patient
+    const mutationData = {
+        priya: [10, 25, 42, 58, 73],
+        tom: [15, 31, 47, 64, 89],
+        phil: [12, 28, 44, 61, 77]
+    };
+
+    let currentPatient = null;
+    let mutationsHighlighted = false;
+    let rotationSynced = false;
+    let syncRotationInterval = null;
+
     // 3Dmol viewers
     let mutantViewer = null;   // left viewer (patient)
     let originalViewer = null; // right viewer (wildtype)
@@ -104,6 +120,8 @@
     let currentStyleOriginal = 'spectrum';
     const spectrumStyle = { cartoon: { color: 'spectrum' } };
     const spacefillStyle = { sphere:  { color: 'spectrum' } };
+    const greyStyle = { cartoon: { color: 'grey' } };
+    const redStyle = { cartoon: { color: 'red' } };
 
     // create empty viewers first (no model for mutant initially)
     function initViewers() {
@@ -171,6 +189,10 @@
             const val = e.target.value;
             if (!val) return;
 
+            currentPatient = val;
+            mutationsHighlighted = false; // reset highlighting flag
+            document.getElementById('highlightMutationsBtn').textContent = 'Highlight Mutations';
+
             const url = pdbUrls[val];
             if (!url) {
                 console.error("No PDB URL for:", val);
@@ -193,6 +215,12 @@
     function setupButtons() {
         document.getElementById('resetMutantBtn').addEventListener('click', () => {
             if (mutantViewer) {
+                // Reset highlighting if active
+                if (mutationsHighlighted) {
+                    mutantViewer.setStyle({}, spectrumStyle);
+                    mutationsHighlighted = false;
+                    document.getElementById('highlightMutationsBtn').textContent = 'Highlight Mutations';
+                }
                 mutantViewer.zoomTo();
                 mutantViewer.render();
             }
@@ -219,6 +247,42 @@
             if (originalViewer) {
                 originalViewer.setStyle({}, style);
                 originalViewer.render();
+            }
+        });
+
+        document.getElementById('highlightMutationsBtn').addEventListener('click', () => {
+            if (!currentPatient) {
+                M.toast({html: 'Please select a patient first'});
+                return;
+            }
+
+            const mutations = mutationData[currentPatient];
+            if (!mutations) {
+                M.toast({html: 'No mutation data for this patient'});
+                return;
+            }
+
+            if (mutationsHighlighted) {
+                // Toggle OFF: restore original spectrum style
+                if (mutantViewer) {
+                    mutantViewer.setStyle({}, spectrumStyle);
+                    mutantViewer.render();
+                }
+                mutationsHighlighted = false;
+                document.getElementById('highlightMutationsBtn').textContent = 'Highlight Mutations';
+            } else {
+                // Toggle ON: grey out all, highlight mutations in red
+                if (mutantViewer) {
+                    // First, set everything to grey
+                    mutantViewer.setStyle({}, greyStyle);
+                    // Then, color mutated residues in red
+                    mutations.forEach(resi => {
+                        mutantViewer.setStyle({resi: resi}, redStyle);
+                    });
+                    mutantViewer.render();
+                }
+                mutationsHighlighted = true;
+                document.getElementById('highlightMutationsBtn').textContent = 'Hide Mutations';
             }
         });
     }
